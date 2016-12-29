@@ -1,1 +1,1 @@
-web: gunicorn finbot:app
+web: gunicorn index:app
