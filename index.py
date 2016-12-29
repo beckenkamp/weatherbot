@@ -40,7 +40,7 @@ def send_attachment(sender, type, url):
     }
 
 def send_message(payload):
-    r = requests.post('https://graph.facebook.com/v2.6/me/messages/?access_token=' + token, json=payload)
+    requests.post('https://graph.facebook.com/v2.6/me/messages/?access_token=' + token, json=payload)
 
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
@@ -86,6 +86,9 @@ def webhook():
                                                        weather['temp_max'],
                                                        weather['temp_min'])
                         payload = {'recipient': {'id': sender}, 'message': {'text': text_res}}
+                        send_message(payload)
+                        
+                        payload = location_quick_reply(sender)
                         send_message(payload)
             else:
                 text = message['text']
