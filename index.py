@@ -5,6 +5,9 @@ import requests
 
 from flask import Flask, request
 
+from cities_list import CITIES
+from messages import get_message, search_keyword
+
 token = os.environ.get('FB_ACCESS_TOKEN')
 api_key = os.environ.get('WEATHER_API_KEY')
 app = Flask(__name__)
@@ -12,7 +15,7 @@ app = Flask(__name__)
 
 def location_quick_reply(sender, text=None):
     if not text:
-        text = "Digite uma cidade ou aperte no botão abaixo para saber o clima. :)"
+        text = get_message('location-button')
     return {
         "recipient": {
             "id": sender
@@ -28,7 +31,7 @@ def location_quick_reply(sender, text=None):
     }
 
 
-def send_attachment(sender, type, url):
+def send_attachment(sender, type, payload):
     return {
         "recipient": {
             "id": sender
@@ -36,9 +39,7 @@ def send_attachment(sender, type, url):
         "message": {
             "attachment": {
                 "type": type,
-                "payload": {
-                    "url": url
-                }
+                "payload": payload,
             }
         }
     }
@@ -78,27 +79,57 @@ def send_weather_info(sender, **kwargs):
     r = requests.get(url)
     response = r.json()
 
+    print(response)
+
     if 'cod' in response:
-        if response['cod'] == "502":
+        if response['cod'] != 200:
             return 'error'
 
-    description = response['weather'][0]['description'].title()
-    icon = response['weather'][0]['icon']
+    name = response['name']
     weather = response['main']
+    wind = response['wind']
+
+    elements = [{
+        'title': name,
+        'subtitle': 'Temperatura: {} graus'.format(str(weather['temp']).replace('.',',')),
+        'image_url': 'https://cdn-images-1.medium.com/max/800/1*LkbHjhacSRDNDzupX7pgEQ.jpeg'
+    }]
+
+    for info in response['weather']:
+        description = info['description'].capitalize()
+        icon = info['icon']
+
+        weather_data = 'Humidade: {}%\n' \
+                       'Pressão: {}\n' \
+                       'Velocidade do vento: {}'.format(weather['humidity'],
+                                                          weather['pressure'],
+                                                          wind['speed'])
+
+        if 'visibility' in response:
+            weather_data = '{}\n Visibilidade: {}'.format(weather_data, response['visibility'])
+
+        elements.append({
+            'title': description,
+            'subtitle': weather_data,
+            'image_url': 'http://openweathermap.org/img/w/{}.png'.format(icon)
+        })
 
     payload = send_attachment(sender,
-                              'image',
-                              'http://openweathermap.org/img/w/{}.png'.format(icon))
-    send_message(payload)
+                              'template',
+                              {
+                                  "template_type": "list",
+                                  "top_element_style": "large",
+                                  "elements": elements,
+                                  "buttons": [
+                                      {
+                                          "title": "Fazer nova pesquisa",
+                                          "type": "postback",
+                                          "payload": "do_it_again"
+                                      }
+                                  ]
+                              })
 
-    text_res = '{}\n' \
-               'Temperatura: {}\n' \
-               'Humidade: {}%'.format(description,
-                                     weather['temp'],
-                                     weather['humidity'])
-    payload = {'recipient': {'id': sender}, 'message': {'text': text_res}}
     send_message(payload)
-
     return None
 
 
@@ -108,6 +139,8 @@ def webhook():
         try:
             data = json.loads(request.data.decode())
             sender = data['entry'][0]['messaging'][0]['sender']['id']
+
+            print(data)
 
             if 'message' in data['entry'][0]['messaging'][0]:
                 message = data['entry'][0]['messaging'][0]['message']
@@ -124,6 +157,11 @@ def webhook():
 
                     return 'Ok'
 
+                # Resend the location button
+                if payload == 'do_it_again':
+                    payload = location_quick_reply(sender)
+                    send_message(payload)
+
             if 'attachments' in message:
                 if 'payload' in message['attachments'][0]:
                     if 'coordinates' in message['attachments'][0]['payload']:
@@ -132,17 +170,42 @@ def webhook():
                         longitude = location['long']
 
                         send_weather_info(sender, latitude=latitude, longitude=longitude)
+
+                        if _return == 'error':
+                            message = send_text(sender, get_message('error'))
+                            send_message(message)
                         
-                        payload = location_quick_reply(sender)
-                        send_message(payload)
+                            payload = location_quick_reply(sender)
+                            send_message(payload)
             else:
                 text = message['text']
-                _return = send_weather_info(sender, city_name=text)
 
-                if _return == 'error':
-                    message = send_text(sender, 'Não encontrei a cidade... :( Quer tentar de novo?')
+                for city in CITIES:
+                    if text.lower() in city:
+                        _return = send_weather_info(sender, city_name=text)
+
+                        if _return == 'error':
+                            message = send_text(sender, get_message('error'))
+                            send_message(message)
+
+                            # Send location button
+                            payload = location_quick_reply(sender)
+                            send_message(payload)
+
+                        return 'Ok'
+
+                # If text not in city list...
+                chat_message = search_keyword(text)
+
+                if chat_message:
+                    # if found keyword, reply with chat stuff
+                    message = send_text(sender, chat_message)
+                    send_message(message)
+                else:
+                    message = send_text(sender, get_message('not-a-city'))
                     send_message(message)
 
+                # Send location button
                 payload = location_quick_reply(sender)
                 send_message(payload)
         except Exception as e:
