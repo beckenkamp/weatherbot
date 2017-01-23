@@ -99,7 +99,7 @@ def send_weather_info(sender, **kwargs):
         description = info['description'].capitalize()
         icon = info['icon']
 
-        weather_data = 'Humidade: {}%\n' \
+        weather_data = 'Umidade: {}%\n' \
                        'Pressão: {}\n' \
                        'Velocidade do vento: {}'.format(weather['humidity'],
                                                           weather['pressure'],
